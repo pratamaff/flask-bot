@@ -7,15 +7,22 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # -------------------------
 # Config
 # -------------------------
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN is not set")
+
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-DB_URL = os.environ.get("DATABASE_URL", "sqlite:///bot.db")
 POLL_INTERVAL = 1
 
-# -------------------------
-# Database
-# -------------------------
-engine = create_engine(DB_URL, echo=True)
+engine = create_engine(
+    DB_URL,
+    pool_pre_ping=True,
+)
+
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
@@ -28,10 +35,16 @@ class BotTrigger(Base):
 # -------------------------
 # Telegram Helper
 # -------------------------
+
 def send_message(chat_id: int, text: str):
     url = f"{TELEGRAM_API_URL}/sendMessage"
     try:
-        resp = requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
+        resp = requests.post(
+            url,
+            data={"chat_id": chat_id, "text": text},
+            timeout=10
+        )
+        print("[TELEGRAM]", resp.status_code, resp.text)
         return resp.ok
     except Exception as e:
         print("send_message error:", e)
