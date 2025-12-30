@@ -2,3 +2,5 @@ requests
 SQLAlchemy
 psycopg[binary]
 python-dotenv
+Flask
+gunicorn

@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["gunicorn", "app:app", "-b", "0.0.0.0:8000", "--workers", "1"]
+CMD ["gunicorn", "app:app", "-b", "0.0.0.0:5000", "--workers", "1"]

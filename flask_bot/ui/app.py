@@ -2,6 +2,18 @@ import os
 from flask import Flask, request, render_template, redirect, url_for, flash
 from sqlalchemy import create_engine, Column, Integer, String, Text, func
 from sqlalchemy.orm import declarative_base, sessionmaker
+from flask_httpauth import HTTPBasicAuth
+# -------------------------
+# auth
+# -------------------------
+auth = HTTPBasicAuth()
+
+ADMIN_USER = os.environ.get("ADMIN_USER")
+ADMIN_PASS = os.environ.get("ADMIN_PASS")
+
+@auth.verify_password
+def verify_password(username, password):
+    return username == ADMIN_USER and password == ADMIN_PASS
 
 # -------------------------
 # Config (STRICT)
@@ -22,7 +34,7 @@ app.secret_key = FLASK_SECRET
 
 engine = create_engine(
     DB_URL,
-    echo=True,
+    echo=False,
     pool_pre_ping=True
 )
 
@@ -44,6 +56,7 @@ Base.metadata.create_all(engine)
 # Routes
 # -------------------------
 @app.route("/")
+@auth.login_required
 def dashboard():
     session = Session()
     triggers = session.query(BotTrigger).order_by(BotTrigger.id).all()
@@ -51,7 +64,9 @@ def dashboard():
     return render_template("index.html", triggers=triggers)
 
 # ADD
+
 @app.route("/trigger/add", methods=["POST"])
+@auth.login_required
 def add_trigger():
     trig = request.form.get("trigger", "").strip()
     resp = request.form.get("response", "").strip()
@@ -83,6 +98,7 @@ def add_trigger():
     return redirect(url_for("dashboard"))
 #EDIT
 @app.route("/trigger/edit/<int:id>", methods=["POST"])
+@auth.login_required
 def edit_trigger(id):
     trig = request.form.get("trigger", "").strip()
     resp = request.form.get("response", "").strip()
@@ -113,6 +129,7 @@ def edit_trigger(id):
 
 # DELETE
 @app.route("/trigger/delete/<int:id>", methods=["GET","POST"])
+@auth.login_required
 def delete_trigger(id):
     session = Session()
     try:

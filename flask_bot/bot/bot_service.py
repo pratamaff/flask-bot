@@ -1,6 +1,6 @@
 import os
-import time
 import requests
+from flask import Flask, request, abort
 from sqlalchemy import create_engine, Column, Integer, String, Text, func
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -8,18 +8,25 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # Config
 # -------------------------
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+TELEGRAM_SECRET = os.environ.get("TELEGRAM_SECRET")  # buat verify webhook
+
 if not TELEGRAM_TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN is not set")
-
-DB_URL = os.environ.get("DATABASE_URL")
-if not DB_URL:
+if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
+if not TELEGRAM_SECRET:
+    raise RuntimeError("TELEGRAM_SECRET is not set")
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-POLL_INTERVAL = 1
+
+# -------------------------
+# App & DB
+# -------------------------
+app = Flask(__name__)
 
 engine = create_engine(
-    DB_URL,
+    DATABASE_URL,
     pool_pre_ping=True,
 )
 
@@ -35,61 +42,61 @@ class BotTrigger(Base):
 # -------------------------
 # Telegram Helper
 # -------------------------
-
 def send_message(chat_id: int, text: str):
-    url = f"{TELEGRAM_API_URL}/sendMessage"
     try:
         resp = requests.post(
-            url,
-            data={"chat_id": chat_id, "text": text},
-            timeout=10
+            f"{TELEGRAM_API_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=5
         )
-        print("[TELEGRAM]", resp.status_code, resp.text)
         return resp.ok
     except Exception as e:
-        print("send_message error:", e)
+        print("[ERROR] send_message:", e)
         return False
 
 # -------------------------
-# Polling loop
+# Webhook Endpoint
 # -------------------------
-def poll_telegram():
-    print("Telegram polling thread started.")
-    last_update_id = None
-    while True:
-        try:
-            params = {}
-            if last_update_id is not None:
-                params["offset"] = last_update_id + 1
-            resp = requests.get(f"{TELEGRAM_API_URL}/getUpdates", params=params, timeout=30)
-            if not resp.ok:
-                print(f"[ERROR] getUpdates failed: {resp.status_code}")
-                time.sleep(POLL_INTERVAL)
-                continue
+@app.post("/telegram/webhook")
+def telegram_webhook():
 
-            results = resp.json().get("result", [])
-            for update in results:
-                last_update_id = update.get("update_id", last_update_id)
-                message = update.get("message")
-                if not message: continue
-                text = message.get("text", "").strip()
-                chat_id = message.get("chat", {}).get("id")
-                if not text or not chat_id: continue
-                print(f"[INFO] Received: {text} from {chat_id}")
+    # 1️⃣ SECURITY: verify telegram secret
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if secret != TELEGRAM_SECRET:
+        abort(403)
 
-                session = Session()
-                try:
-                    trigger_entry = session.query(BotTrigger)\
-                                           .filter(func.lower(BotTrigger.trigger) == text.lower())\
-                                           .first()
-                    if trigger_entry:
-                        print(f"[INFO] Trigger matched: {trigger_entry.response}")
-                        send_message(chat_id, trigger_entry.response)
-                finally:
-                    session.close()
-        except Exception as e:
-            print(f"[ERROR] Polling exception: {e}")
-        time.sleep(POLL_INTERVAL)
+    data = request.get_json(silent=True)
+    if not data:
+        return "ok"
 
-if __name__ == "__main__":
-    poll_telegram()
+    message = data.get("message")
+    if not message:
+        return "ok"
+
+    text = message.get("text", "").strip()
+    chat_id = message.get("chat", {}).get("id")
+
+    if not text or not chat_id:
+        return "ok"
+
+    print(f"[INFO] Incoming message: {text} from {chat_id}")
+
+    # 2️⃣ DB lookup (FAST, blocking < 50ms)
+    session = Session()
+    try:
+        trigger_entry = (
+            session.query(BotTrigger)
+            .filter(func.lower(BotTrigger.trigger) == text.lower())
+            .first()
+        )
+
+        if trigger_entry:
+            send_message(chat_id, trigger_entry.response)
+
+    except Exception as e:
+        print("[ERROR] webhook processing:", e)
+    finally:
+        session.close()
+
+    # 3️⃣ IMPORTANT: ALWAYS return 200 FAST
+    return "ok"

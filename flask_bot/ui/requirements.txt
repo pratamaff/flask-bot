@@ -3,3 +3,4 @@ SQLAlchemy
 psycopg[binary]
 gunicorn
 python-dotenv
+flask-httpauth

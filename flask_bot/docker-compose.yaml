@@ -13,8 +13,9 @@ services:
   ui:
     build: ./ui
     container_name: bot_ui
+    # ❌ UI TIDAK PERLU DOMAIN
     ports:
-      - "8000:8000"
+      - "5000:5000"
     env_file:
       - .env
     environment:
@@ -26,6 +27,9 @@ services:
   bot:
     build: ./bot
     container_name: bot_service
+    # ✅ BOT HARUS DIEXPOSE KE LUAR
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     environment:
